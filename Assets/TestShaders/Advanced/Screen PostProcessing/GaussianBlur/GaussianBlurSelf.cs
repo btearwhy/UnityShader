@@ -27,9 +27,9 @@ namespace TestShaders.Advanced.Screen_PostProcessing
 
         void OnRenderImage(RenderTexture source, RenderTexture destination)
         {
-            OnRenderImage_Original(source, destination);
+            //OnRenderImage_Original(source, destination);
             //OnRenderImage_DownSample(source, destination);
-            //OnRenderImage_Iteration(source, destination);
+            OnRenderImage_Iteration(source, destination);
         }
         
         void OnRenderImage_Original(RenderTexture source, RenderTexture destination)

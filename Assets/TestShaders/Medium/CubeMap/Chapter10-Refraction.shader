@@ -10,9 +10,10 @@ Shader "Unlit/Chapter10-Reflection"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry"}
+        Tags { "Queue"="Transparent" "RenderType"="Opaque"}
 
-
+        GrabPass {"_RefractionTex"}
+        
         Pass
         {
             Tags { "LightMode"="ForwardBase" }
