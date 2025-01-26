@@ -12,9 +12,11 @@ Shader "Unlit/Chapter16-WaterWave"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" }
-        LOD 100
-
+        Tags { "Queue"="Transparent" "RenderType"="Opaque" }
+        
+        GrabPass {"_RefractionTex"}
+        
+        
         Pass
         {
             CGPROGRAM
@@ -24,39 +26,80 @@ Shader "Unlit/Chapter16-WaterWave"
             #pragma multi_compile_fog
 
             #include "UnityCG.cginc"
-
-            struct appdata
-            {
-                float4 vertex : POSITION;
-                float2 uv : TEXCOORD0;
-            };
-
-            struct v2f
-            {
-                float2 uv : TEXCOORD0;
-                UNITY_FOG_COORDS(1)
-                float4 vertex : SV_POSITION;
-            };
-
+            
+            fixed4 _Color;
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            sampler2D _WaveMap;
+            float4 _WaveMap_ST;
+            samplerCUBE _CubeMap;
+            fixed _WaveXSpeed;
+            fixed _WaveYSpeed;
+            float _Distortion;
+            sampler2D _RefractionTex;
+            float4 _RefractionTex_TexelSize;
 
-            v2f vert (appdata v)
+            struct a2v
+            {
+                float4 vertex:POSITION;
+                float4 texcoord:TEXCOORD0;
+                fixed3 normal:NORMAL;
+                fixed4 tangent:TANGENT;
+            };
+            
+            struct v2f
+            {
+                float4 pos:SV_POSITION;
+                float4 scrPos:TEXCOORD0;
+                float4 uv:TEXCOORD1;
+                float4 TtoW0:TEXCOORD2;
+                float4 TtoW1:TEXCOORD3;
+                float4 TtoW2:TEXCOORD4;
+            };
+
+            v2f vert(a2v v)
             {
                 v2f o;
-                o.vertex = UnityObjectToClipPos(v.vertex);
-                o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-                UNITY_TRANSFER_FOG(o,o.vertex);
+                o.pos = UnityObjectToClipPos(v.vertex);
+
+                o.scrPos = ComputeGrabScreenPos(o.pos);
+
+                o.uv.xy = TRANSFORM_TEX(v.texcoord, _MainTex);
+                o.uv.zw = TRANSFORM_TEX(v.texcoord, _WaveMap);
+
+                float3 worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                fixed3 worldNormal = UnityObjectToWorldNormal(v.normal);
+                fixed3 worldTangent = UnityObjectToWorldDir(v.tangent);
+                fixed3 worldBinormal = cross(worldNormal, worldTangent) * v.tangent.w;
+
+                o.TtoW0 = float4(worldTangent.x, worldBinormal.x, worldNormal.x, worldPos.x);
+                o.TtoW1 = float4(worldTangent.y, worldBinormal.y, worldNormal.y, worldPos.y);
+                o.TtoW2 = float4(worldTangent.z, worldBinormal.z, worldNormal.z, worldPos.z);
+
                 return o;
             }
 
-            fixed4 frag (v2f i) : SV_Target
-            {
-                // sample the texture
-                fixed4 col = tex2D(_MainTex, i.uv);
-                // apply fog
-                UNITY_APPLY_FOG(i.fogCoord, col);
-                return col;
+            fixed4 frag(v2f i):SV_Target{
+                float3 worldPos = float3(i.TtoW0.w, i.TtoW1.w, i.TtoW2.w);
+                fixed3 viewDir = normalize(UnityWorldSpaceViewDir(worldPos));
+                float2 speed = _Time.y * float2(_WaveXSpeed, _WaveYSpeed);
+
+                fixed3 bump1 = UnpackNormal(tex2D(_WaveMap, i.uv.zw + speed)).rgb;
+                fixed3 bump2 = UnpackNormal(tex2D(_WaveMap, i.uv.zw - speed)).rgb;
+                fixed3 bump = normalize(bump1 + bump2);
+
+                float2 offset = bump.xy * _Distortion * _RefractionTex_TexelSize;
+                i.scrPos.xy = offset * i.scrPos.z + i.scrPos.xy;
+                fixed3 refrCol = tex2D(_RefractionTex, i.scrPos.xy / i.scrPos.w).rgb;
+
+                bump = normalize(half3(dot(i.TtoW0.xyz, bump), dot(i.TtoW1.xyz, bump), dot(i.TtoW2.xyz, bump)));
+                fixed4 texColor = tex2D(_MainTex, i.uv.xy + speed);
+                fixed3 reflDir = reflect(-viewDir, bump);
+                fixed3 reflCol = texCUBE(_CubeMap, reflDir).rgb * texColor.rgb * _Color.rgb;
+                fixed3 fresnel = pow(1 - saturate(dot(viewDir, bump)), 4);
+                fixed3 finalColor = reflCol * fresnel + refrCol * (1 - fresnel);
+
+                return fixed4(finalColor,  1);
             }
             ENDCG
         }
